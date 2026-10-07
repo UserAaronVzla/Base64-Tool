@@ -4,6 +4,7 @@
 
   const $ = (id) => document.getElementById(id);
   const LARGE_INPUT = 10 * 1024 * 1024;
+  const MAX_DISPLAY = 5 * 1024 * 1024;
 
   // ---- shared helpers
 
@@ -33,6 +34,12 @@
   }
 
   async function copyText(text, button) {
+    const label = button.dataset.label || button.textContent;
+    button.dataset.label = label;
+    button.textContent = 'Copying…';
+    // Let "Copying…" paint first: large copies can block the page for a while.
+    await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+    let ok = true;
     try {
       await navigator.clipboard.writeText(text);
     } catch (e) {
@@ -40,12 +47,21 @@
       ta.value = text;
       document.body.appendChild(ta);
       ta.select();
-      document.execCommand('copy');
+      try { ok = document.execCommand('copy'); } catch (e2) { ok = false; }
       ta.remove();
     }
-    const label = button.textContent;
-    button.textContent = 'Copied';
-    setTimeout(() => { button.textContent = label; }, 1200);
+    button.textContent = ok ? 'Copied' : 'Copy failed';
+    setTimeout(() => { button.textContent = label; }, 1500);
+  }
+
+  // Puts text in an output box unless it is too large to display; returns a note for the too-large case.
+  function showOutput(box, text) {
+    if (text.length > MAX_DISPLAY) {
+      box.value = '';
+      return `output is ${formatSize(text.length)}, too large to display; use Download (Copy may be slow)`;
+    }
+    box.value = text;
+    return '';
   }
 
   function debounce(fn, ms) {
@@ -76,17 +92,17 @@
   // Live mode: re-run on input (debounced) and on option changes; off automatically for huge input.
   function wireLive({ input, live, run, notes, options }) {
     const runLater = debounce(run, 150);
+    const tooLarge = () => {
+      if (input.value.length <= LARGE_INPUT) return false;
+      live.checked = false;
+      setMsg(notes, 'Live mode turned off: input is larger than 10 MB. Use the button instead.');
+      return true;
+    };
     input.addEventListener('input', () => {
-      if (!live.checked) return;
-      if (input.value.length > LARGE_INPUT) {
-        live.checked = false;
-        setMsg(notes, 'Live mode turned off: input is larger than 10 MB. Use the button instead.');
-        return;
-      }
-      runLater();
+      if (live.checked && !tooLarge()) runLater();
     });
     for (const el of options) el.addEventListener('change', () => { if (live.checked) run(); });
-    live.addEventListener('change', () => { if (live.checked) run(); });
+    live.addEventListener('change', () => { if (live.checked && !tooLarge()) run(); });
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
@@ -107,8 +123,10 @@
   for (const t of TABS) $('tab-' + t).addEventListener('click', () => showTab(t));
 
   // Dropping a file anywhere outside the drop zone must not navigate away from the page.
-  window.addEventListener('dragover', (e) => e.preventDefault());
-  window.addEventListener('drop', (e) => e.preventDefault());
+  // Only file drags are blocked, so dragging text into the input boxes still works.
+  const hasFiles = (e) => !!e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files');
+  window.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault(); });
+  window.addEventListener('drop', (e) => { if (hasFiles(e)) e.preventDefault(); });
 
   // ---- decode tab
 
@@ -120,40 +138,41 @@
   };
   fillCharsets(dec.charset, B64.supportedDecodeCharsets());
   let lastDecoded = null;
+  let decText = ''; // full output text (the box may not show it all)
 
   function runDecode() {
     setMsg(dec.error, '');
     setMsg(dec.notes, '');
     dec.asTextWrap.hidden = true;
     lastDecoded = null;
+    decText = '';
+    dec.output.value = '';
     const text = dec.input.value;
     const charset = dec.charset.value;
-    if (text.trim() === '') {
-      dec.output.value = '';
-      return;
-    }
+    if (text.trim() === '') return;
     try {
+      const notes = [];
       if (dec.perLine.checked) {
-        dec.output.value = B64.decodeText(text, { charset, perLine: true });
-        return;
-      }
-      const pem = B64.detectPem(text);
-      const bytes = B64.decodeToBytes(text);
-      lastDecoded = bytes;
-      const notes = decodeNotes(text, pem);
-      notes.push(`${formatSize(bytes.length)} decoded`);
-      const binary = B64.looksBinary(bytes, charset);
-      dec.asTextWrap.hidden = !binary;
-      if (binary && !dec.asText.checked) {
-        const dump = B64.hexDump(bytes);
-        dec.output.value = dump.text;
-        notes.push('binary data, showing hex dump' + (dump.truncated ? ' (first 64 KB only; Download saves everything)' : ''));
+        decText = B64.decodeText(text, { charset, perLine: true });
       } else {
-        dec.output.value = B64.bytesToText(bytes, charset);
+        const pem = B64.detectPem(text);
+        const bytes = B64.decodeToBytes(text);
+        lastDecoded = bytes;
+        notes.push(...decodeNotes(text, pem), `${formatSize(bytes.length)} decoded`);
+        const binary = B64.looksBinary(bytes, charset);
+        dec.asTextWrap.hidden = !binary;
+        if (binary && !dec.asText.checked) {
+          const dump = B64.hexDump(bytes);
+          decText = dump.text;
+          notes.push('binary data, showing hex dump' + (dump.truncated ? ' (first 64 KB only; Download saves everything)' : ''));
+        } else {
+          decText = B64.bytesToText(bytes, charset);
+        }
       }
+      const tooLarge = showOutput(dec.output, decText);
+      if (tooLarge) notes.push(tooLarge);
       setMsg(dec.notes, notes.join(' · '));
     } catch (e) {
-      dec.output.value = '';
       setMsg(dec.error, e.message);
     }
   }
@@ -161,10 +180,10 @@
   dec.run.addEventListener('click', runDecode);
   dec.asText.addEventListener('change', runDecode);
   wireLive({ input: dec.input, live: dec.live, run: runDecode, notes: dec.notes, options: [dec.charset, dec.perLine] });
-  dec.copy.addEventListener('click', () => copyText(dec.output.value, dec.copy));
+  dec.copy.addEventListener('click', () => copyText(decText, dec.copy));
   dec.download.addEventListener('click', () => {
     if (lastDecoded) download(lastDecoded, dec.filename.value.trim() || 'decoded.bin');
-    else if (dec.output.value) download(dec.output.value, dec.filename.value.trim() || 'decoded.txt', 'text/plain');
+    else if (decText) download(decText, dec.filename.value.trim() || 'decoded.txt', 'text/plain');
   });
 
   // ---- encode tab
@@ -176,15 +195,15 @@
     copy: $('enc-copy'), filename: $('enc-filename'), download: $('enc-download'),
   };
   fillCharsets(enc.charset, B64.ENCODE_CHARSETS);
+  let encText = ''; // full output text (the box may not show it all)
 
   function runEncode() {
     setMsg(enc.error, '');
     setMsg(enc.notes, '');
+    encText = '';
+    enc.output.value = '';
     const text = enc.input.value;
-    if (text === '') {
-      enc.output.value = '';
-      return;
-    }
+    if (text === '') return;
     const perLine = enc.perLine.checked;
     const pem = enc.pem.checked;
     try {
@@ -195,13 +214,16 @@
         mimeSplit: enc.mime.checked && !pem,
       });
       if (pem && !perLine) out = B64.wrapPem(out, enc.pemLabel.value.trim() || 'CERTIFICATE');
-      if (pem && perLine) setMsg(enc.notes, 'PEM wrapping is ignored in per-line mode.');
+      const notes = [];
+      if (pem && perLine) notes.push('PEM wrapping is ignored in per-line mode.');
       else if (pem && (enc.urlSafe.checked || enc.mime.checked)) {
-        setMsg(enc.notes, 'PEM always uses the standard alphabet and 64-character lines.');
+        notes.push('PEM always uses the standard alphabet and 64-character lines.');
       }
-      enc.output.value = out;
+      encText = out;
+      const tooLarge = showOutput(enc.output, out);
+      if (tooLarge) notes.push(tooLarge);
+      setMsg(enc.notes, notes.join(' · '));
     } catch (e) {
-      enc.output.value = '';
       setMsg(enc.error, e.message);
     }
   }
@@ -214,14 +236,13 @@
   enc.pem.addEventListener('change', () => {
     enc.filename.value = enc.pem.checked ? 'encoded.pem' : 'encoded.b64';
   });
-  enc.copy.addEventListener('click', () => copyText(enc.output.value, enc.copy));
+  enc.copy.addEventListener('click', () => copyText(encText, enc.copy));
   enc.download.addEventListener('click', () => {
-    if (enc.output.value) download(enc.output.value, enc.filename.value.trim() || 'encoded.b64', 'text/plain');
+    if (encText) download(encText, enc.filename.value.trim() || 'encoded.b64', 'text/plain');
   });
 
   // ---- file tab
 
-  const MAX_DISPLAY = 5 * 1024 * 1024;
   const file = {
     drop: $('drop'), pick: $('file-pick'), input: $('file-input'), info: $('file-info'),
     encOpts: $('file-enc-opts'), mime: $('file-mime'), pem: $('file-pem'), pemLabel: $('file-pemlabel'),
@@ -281,13 +302,10 @@
         let out = B64.encodeBytes(bytes, { mimeSplit: file.mime.checked && !pem });
         if (pem) out = B64.wrapPem(out, file.pemLabel.value.trim() || 'CERTIFICATE');
         fileResult = { data: out, type: 'text/plain' };
-        const note = `${formatSize(bytes.length)} → ${formatSize(out.length)} of Base64`;
-        if (out.length > MAX_DISPLAY) {
-          setMsg(file.notes, `${note} · too large to display, use Download or Copy`);
-        } else {
-          file.output.value = out;
-          setMsg(file.notes, note);
-        }
+        const notes = [`${formatSize(bytes.length)} → ${formatSize(out.length)} of Base64`];
+        const tooLarge = showOutput(file.output, out);
+        if (tooLarge) notes.push(tooLarge);
+        setMsg(file.notes, notes.join(' · '));
       } else {
         const text = B64.fileBytesToText(raw);
         const pem = B64.detectPem(text);
