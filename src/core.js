@@ -104,8 +104,98 @@
     return decodeClean(String(input), 0);
   }
 
+  // ---- charsets
+
+  const ENCODE_CHARSETS = ['utf-8', 'utf-16le', 'utf-16be', 'iso-8859-1'];
+  const DECODE_CHARSETS = [
+    'utf-8', 'utf-16le', 'utf-16be', 'windows-1252',
+    'iso-8859-2', 'iso-8859-3', 'iso-8859-4', 'iso-8859-5', 'iso-8859-6', 'iso-8859-7', 'iso-8859-8',
+    'iso-8859-10', 'iso-8859-13', 'iso-8859-14', 'iso-8859-15', 'iso-8859-16',
+    'windows-1250', 'windows-1251', 'windows-1253', 'windows-1254', 'windows-1255', 'windows-1256',
+    'windows-1257', 'windows-1258', 'windows-874', 'koi8-r', 'koi8-u', 'ibm866', 'macintosh',
+    'shift_jis', 'euc-jp', 'iso-2022-jp', 'euc-kr', 'gbk', 'gb18030', 'big5',
+  ];
+
+  function makeDecoder(charset) {
+    try {
+      return new TextDecoder(charset);
+    } catch (e) {
+      throw new Error(`Unsupported charset: ${charset}`);
+    }
+  }
+
+  function supportedDecodeCharsets() {
+    return DECODE_CHARSETS.filter((cs) => {
+      try { new TextDecoder(cs); return true; } catch (e) { return false; }
+    });
+  }
+
+  function textToBytes(str, charset = 'utf-8') {
+    const cs = String(charset).toLowerCase();
+    if (cs === 'utf-8') return new TextEncoder().encode(str);
+    if (cs === 'utf-16le' || cs === 'utf-16be') {
+      const be = cs === 'utf-16be';
+      const out = new Uint8Array(str.length * 2);
+      for (let i = 0; i < str.length; i++) {
+        const u = str.charCodeAt(i);
+        out[2 * i] = be ? u >> 8 : u & 255;
+        out[2 * i + 1] = be ? u & 255 : u >> 8;
+      }
+      return out;
+    }
+    if (cs === 'iso-8859-1') {
+      const out = new Uint8Array(str.length);
+      for (let i = 0; i < str.length; i++) {
+        const u = str.charCodeAt(i);
+        if (u > 255) {
+          throw new Error(`Character '${charAt(str, i)}' at position ${i} cannot be encoded as ISO-8859-1`);
+        }
+        out[i] = u;
+      }
+      return out;
+    }
+    throw new Error(`Encoding to ${charset} is not supported (supported: ${ENCODE_CHARSETS.join(', ')})`);
+  }
+
+  function bytesToText(bytes, charset = 'utf-8') {
+    return makeDecoder(charset).decode(bytes);
+  }
+
+  function splitInputLines(s) {
+    return String(s).split(/\r?\n/);
+  }
+
+  function encodeText(str, opts = {}) {
+    const charset = opts.charset || 'utf-8';
+    if (opts.perLine) {
+      return splitInputLines(str)
+        .map((line) => encodeBytes(textToBytes(line, charset), { urlSafe: opts.urlSafe }))
+        .join('\n');
+    }
+    return encodeBytes(textToBytes(str, charset), { urlSafe: opts.urlSafe, mimeSplit: opts.mimeSplit });
+  }
+
+  function decodeText(b64, opts = {}) {
+    const decoder = makeDecoder(opts.charset || 'utf-8');
+    if (opts.perLine) {
+      return splitInputLines(b64)
+        .map((line, idx) => {
+          if (line.trim() === '') return '';
+          try {
+            return decoder.decode(decodeToBytes(line));
+          } catch (e) {
+            return `[line ${idx + 1}: ${e.message}]`;
+          }
+        })
+        .join('\n');
+    }
+    return decoder.decode(decodeToBytes(b64));
+  }
+
   return {
     Base64Error,
     encodeBytes, decodeToBytes,
+    ENCODE_CHARSETS, DECODE_CHARSETS, supportedDecodeCharsets,
+    textToBytes, bytesToText, encodeText, decodeText,
   };
 });
