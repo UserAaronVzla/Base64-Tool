@@ -1,0 +1,833 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Base64 Tool</title>
+<style>
+:root {
+  --bg: #f4f5f7;
+  --panel: #ffffff;
+  --text: #1d2330;
+  --muted: #5d6677;
+  --border: #d5d9e0;
+  --accent: #2563eb;
+  --accent-text: #ffffff;
+  --error: #b42318;
+  --error-bg: #fdecea;
+  --note-bg: #eef4ff;
+  --mono: ui-monospace, "Cascadia Mono", Consolas, "Courier New", monospace;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14171c;
+    --panel: #1c2027;
+    --text: #e4e7ec;
+    --muted: #9aa3b2;
+    --border: #343a46;
+    --accent: #5b8def;
+    --accent-text: #0b1020;
+    --error: #ff8a80;
+    --error-bg: #3a1d1d;
+    --note-bg: #1d2a40;
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.top, main { max-width: 980px; margin: 0 auto; padding: 0 16px; }
+.top { padding-top: 20px; }
+h1 { font-size: 1.5rem; margin: 0 0 2px; }
+.tagline { margin: 0 0 14px; color: var(--muted); font-size: 0.9rem; }
+
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); }
+.tabs button {
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: none;
+  color: var(--muted);
+  padding: 8px 18px;
+  margin-bottom: -1px;
+}
+.tabs button[aria-selected="true"] {
+  background: var(--panel);
+  color: var(--text);
+  border-color: var(--border);
+  font-weight: 600;
+}
+
+section {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  padding: 16px;
+  margin-bottom: 24px;
+}
+
+.lbl { display: block; font-weight: 600; margin-bottom: 6px; }
+
+textarea {
+  display: block;
+  width: 100%;
+  min-height: 180px;
+  resize: vertical;
+  padding: 10px;
+  font: 13px/1.4 var(--mono);
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.options, .out-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin: 10px 0;
+}
+.out-head .lbl { margin: 0 auto 0 0; }
+.options label { display: inline-flex; align-items: center; gap: 6px; }
+.hint { color: var(--muted); font-size: 0.85rem; }
+
+button, select, input { font: inherit; color: var(--text); }
+button {
+  padding: 6px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+button:hover { border-color: var(--accent); }
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+select, input[type="text"] {
+  padding: 5px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+input[type="text"] { width: 12em; }
+
+.error, .note { margin: 8px 0; padding: 8px 10px; border-radius: 6px; font-size: 0.9rem; }
+.error { background: var(--error-bg); color: var(--error); }
+.note { background: var(--note-bg); }
+
+.drop {
+  padding: 28px 16px;
+  text-align: center;
+  color: var(--muted);
+  border: 2px dashed var(--border);
+  border-radius: 8px;
+}
+.drop.over { border-color: var(--accent); color: var(--text); }
+.file-info { margin: 10px 0 0; color: var(--text); font-family: var(--mono); font-size: 0.9rem; }
+
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Base64 Tool</h1>
+  <p class="tagline">Runs entirely in this page. Nothing you paste or drop here is sent anywhere.</p>
+  <nav class="tabs" role="tablist">
+    <button type="button" role="tab" id="tab-decode" aria-controls="panel-decode" aria-selected="true">Decode</button>
+    <button type="button" role="tab" id="tab-encode" aria-controls="panel-encode" aria-selected="false">Encode</button>
+    <button type="button" role="tab" id="tab-file" aria-controls="panel-file" aria-selected="false">File</button>
+  </nav>
+</header>
+
+<main>
+  <section id="panel-decode" role="tabpanel" aria-labelledby="tab-decode">
+    <label for="dec-input" class="lbl">Base64 input</label>
+    <textarea id="dec-input" spellcheck="false" placeholder="Paste Base64 or a PEM block (Ctrl+Enter to decode)"></textarea>
+    <div class="options">
+      <label>Charset <select id="dec-charset"></select></label>
+      <label><input type="checkbox" id="dec-live"> Live mode</label>
+      <label><input type="checkbox" id="dec-perline"> Each line separately</label>
+      <span class="hint">Standard and URL-safe alphabets are both accepted.</span>
+      <button type="button" id="dec-run" class="primary">Decode</button>
+    </div>
+    <p id="dec-error" class="error" role="alert" hidden></p>
+    <p id="dec-notes" class="note" hidden></p>
+    <div class="out-head">
+      <span class="lbl">Output</span>
+      <label id="dec-astext-wrap" hidden><input type="checkbox" id="dec-astext"> Show as text anyway</label>
+      <button type="button" id="dec-copy">Copy</button>
+      <input type="text" id="dec-filename" value="decoded.bin" aria-label="Download filename">
+      <button type="button" id="dec-download">Download</button>
+    </div>
+    <textarea id="dec-output" readonly spellcheck="false"></textarea>
+  </section>
+
+  <section id="panel-encode" role="tabpanel" aria-labelledby="tab-encode" hidden>
+    <label for="enc-input" class="lbl">Text input</label>
+    <textarea id="enc-input" spellcheck="false" placeholder="Type or paste text (Ctrl+Enter to encode)"></textarea>
+    <div class="options">
+      <label>Charset <select id="enc-charset"></select></label>
+      <label><input type="checkbox" id="enc-live"> Live mode</label>
+      <label><input type="checkbox" id="enc-perline"> Each line separately</label>
+      <label><input type="checkbox" id="enc-urlsafe"> URL-safe</label>
+      <label><input type="checkbox" id="enc-mime"> Split into 76-char lines (MIME)</label>
+      <label><input type="checkbox" id="enc-pem"> Wrap as PEM</label>
+      <input type="text" id="enc-pemlabel" value="CERTIFICATE" aria-label="PEM label">
+      <button type="button" id="enc-run" class="primary">Encode</button>
+    </div>
+    <p id="enc-error" class="error" role="alert" hidden></p>
+    <p id="enc-notes" class="note" hidden></p>
+    <div class="out-head">
+      <span class="lbl">Output</span>
+      <button type="button" id="enc-copy">Copy</button>
+      <input type="text" id="enc-filename" value="encoded.b64" aria-label="Download filename">
+      <button type="button" id="enc-download">Download</button>
+    </div>
+    <textarea id="enc-output" readonly spellcheck="false"></textarea>
+  </section>
+
+  <section id="panel-file" role="tabpanel" aria-labelledby="tab-file" hidden>
+    <div id="drop" class="drop">
+      Drop a file here or <button type="button" id="file-pick">choose a file</button>
+      <input type="file" id="file-input" hidden>
+      <p id="file-info" class="file-info">No file selected</p>
+    </div>
+    <div class="options">
+      <label><input type="radio" name="file-mode" value="encode" checked> Encode file → Base64</label>
+      <label><input type="radio" name="file-mode" value="decode"> Decode Base64/PEM file → original bytes</label>
+    </div>
+    <div class="options" id="file-enc-opts">
+      <label><input type="checkbox" id="file-mime"> Split into 76-char lines (MIME)</label>
+      <label><input type="checkbox" id="file-pem"> Wrap as PEM</label>
+      <input type="text" id="file-pemlabel" value="CERTIFICATE" aria-label="PEM label">
+    </div>
+    <div class="options">
+      <button type="button" id="file-run" class="primary">Convert</button>
+    </div>
+    <p id="file-error" class="error" role="alert" hidden></p>
+    <p id="file-notes" class="note" hidden></p>
+    <div class="out-head">
+      <span class="lbl">Result</span>
+      <button type="button" id="file-copy">Copy</button>
+      <input type="text" id="file-filename" value="" aria-label="Download filename">
+      <button type="button" id="file-download">Download</button>
+    </div>
+    <textarea id="file-output" readonly spellcheck="false"></textarea>
+  </section>
+</main>
+<script>
+/* Base64 Tool core: pure functions, no DOM. Browser global `B64`, Node `module.exports`. */
+(function (root, factory) {
+  const api = factory();
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  else root.B64 = api;
+})(typeof self !== 'undefined' ? self : this, function () {
+  'use strict';
+
+  const STD_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  const URL_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+
+  // Char code -> sextet value; accepts both alphabets. -1 = invalid.
+  const LOOKUP = new Int16Array(128).fill(-1);
+  for (let i = 0; i < 64; i++) {
+    LOOKUP[STD_ALPHABET.charCodeAt(i)] = i;
+    LOOKUP[URL_ALPHABET.charCodeAt(i)] = i;
+  }
+
+  class Base64Error extends Error {
+    constructor(message, position = null, char = null) {
+      super(message);
+      this.name = 'Base64Error';
+      this.position = position;
+      this.char = char;
+    }
+  }
+
+  function splitLines(s, width, sep) {
+    if (s.length <= width) return s;
+    const parts = [];
+    for (let i = 0; i < s.length; i += width) parts.push(s.slice(i, i + width));
+    return parts.join(sep);
+  }
+
+  function encodeBytes(bytes, opts = {}) {
+    const alphabet = opts.urlSafe ? URL_ALPHABET : STD_ALPHABET;
+    const len = bytes.length;
+    let s = '';
+    let i = 0;
+    for (; i + 2 < len; i += 3) {
+      const n = (bytes[i] << 16) | (bytes[i + 1] << 8) | bytes[i + 2];
+      s += alphabet[(n >> 18) & 63] + alphabet[(n >> 12) & 63] + alphabet[(n >> 6) & 63] + alphabet[n & 63];
+    }
+    const rem = len - i;
+    if (rem === 1) {
+      const n = bytes[i] << 16;
+      s += alphabet[(n >> 18) & 63] + alphabet[(n >> 12) & 63] + (opts.urlSafe ? '' : '==');
+    } else if (rem === 2) {
+      const n = (bytes[i] << 16) | (bytes[i + 1] << 8);
+      s += alphabet[(n >> 18) & 63] + alphabet[(n >> 12) & 63] + alphabet[(n >> 6) & 63] + (opts.urlSafe ? '' : '=');
+    }
+    return opts.mimeSplit ? splitLines(s, 76, '\r\n') : s;
+  }
+
+  function charAt(text, i) {
+    return String.fromCodePoint(text.codePointAt(i));
+  }
+
+  // Decode `text`; `offset` is added to reported positions so they refer to the caller's original input.
+  function decodeClean(text, offset) {
+    const vals = new Uint8Array(text.length);
+    let count = 0;
+    let padSeen = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text.charCodeAt(i);
+      if (c === 32 || c === 9 || c === 10 || c === 13 || c === 11 || c === 12) continue;
+      if (c === 61) { padSeen = true; continue; }
+      if (padSeen) {
+        throw new Base64Error(`Unexpected data after padding at position ${i + offset}`, i + offset, charAt(text, i));
+      }
+      const v = c < 128 ? LOOKUP[c] : -1;
+      if (v < 0) {
+        const ch = charAt(text, i);
+        throw new Base64Error(`Invalid character '${ch}' at position ${i + offset}`, i + offset, ch);
+      }
+      vals[count++] = v;
+    }
+    const rem = count % 4;
+    if (rem === 1) {
+      throw new Base64Error(`Invalid Base64 length: ${count} characters (the last group has only one character)`);
+    }
+    const out = new Uint8Array(Math.floor(count / 4) * 3 + (rem === 0 ? 0 : rem - 1));
+    let o = 0;
+    let j = 0;
+    for (; j + 3 < count; j += 4) {
+      const n = (vals[j] << 18) | (vals[j + 1] << 12) | (vals[j + 2] << 6) | vals[j + 3];
+      out[o++] = (n >> 16) & 255;
+      out[o++] = (n >> 8) & 255;
+      out[o++] = n & 255;
+    }
+    if (rem === 2) {
+      const n = (vals[j] << 18) | (vals[j + 1] << 12);
+      out[o++] = (n >> 16) & 255;
+    } else if (rem === 3) {
+      const n = (vals[j] << 18) | (vals[j + 1] << 12) | (vals[j + 2] << 6);
+      out[o++] = (n >> 16) & 255;
+      out[o++] = (n >> 8) & 255;
+    }
+    return out;
+  }
+
+  // `opts.urlSafe` is accepted for symmetry; decoding always accepts both alphabets.
+  function decodeToBytes(input, opts = {}) {
+    const text = String(input);
+    const pem = detectPem(text);
+    return pem ? decodeClean(pem.body, pem.start) : decodeClean(text, 0);
+  }
+
+  // ---- charsets
+
+  const ENCODE_CHARSETS = ['utf-8', 'utf-16le', 'utf-16be', 'iso-8859-1'];
+  const DECODE_CHARSETS = [
+    'utf-8', 'utf-16le', 'utf-16be', 'windows-1252',
+    'iso-8859-2', 'iso-8859-3', 'iso-8859-4', 'iso-8859-5', 'iso-8859-6', 'iso-8859-7', 'iso-8859-8',
+    'iso-8859-10', 'iso-8859-13', 'iso-8859-14', 'iso-8859-15', 'iso-8859-16',
+    'windows-1250', 'windows-1251', 'windows-1253', 'windows-1254', 'windows-1255', 'windows-1256',
+    'windows-1257', 'windows-1258', 'windows-874', 'koi8-r', 'koi8-u', 'ibm866', 'macintosh',
+    'shift_jis', 'euc-jp', 'iso-2022-jp', 'euc-kr', 'gbk', 'gb18030', 'big5',
+  ];
+
+  function makeDecoder(charset) {
+    try {
+      return new TextDecoder(charset);
+    } catch (e) {
+      throw new Error(`Unsupported charset: ${charset}`);
+    }
+  }
+
+  function supportedDecodeCharsets() {
+    return DECODE_CHARSETS.filter((cs) => {
+      try { new TextDecoder(cs); return true; } catch (e) { return false; }
+    });
+  }
+
+  function textToBytes(str, charset = 'utf-8') {
+    const cs = String(charset).toLowerCase();
+    if (cs === 'utf-8') return new TextEncoder().encode(str);
+    if (cs === 'utf-16le' || cs === 'utf-16be') {
+      const be = cs === 'utf-16be';
+      const out = new Uint8Array(str.length * 2);
+      for (let i = 0; i < str.length; i++) {
+        const u = str.charCodeAt(i);
+        out[2 * i] = be ? u >> 8 : u & 255;
+        out[2 * i + 1] = be ? u & 255 : u >> 8;
+      }
+      return out;
+    }
+    if (cs === 'iso-8859-1') {
+      const out = new Uint8Array(str.length);
+      for (let i = 0; i < str.length; i++) {
+        const u = str.charCodeAt(i);
+        if (u > 255) {
+          throw new Error(`Character '${charAt(str, i)}' at position ${i} cannot be encoded as ISO-8859-1`);
+        }
+        out[i] = u;
+      }
+      return out;
+    }
+    throw new Error(`Encoding to ${charset} is not supported (supported: ${ENCODE_CHARSETS.join(', ')})`);
+  }
+
+  function bytesToText(bytes, charset = 'utf-8') {
+    return makeDecoder(charset).decode(bytes);
+  }
+
+  function splitInputLines(s) {
+    return String(s).split(/\r?\n/);
+  }
+
+  function encodeText(str, opts = {}) {
+    const charset = opts.charset || 'utf-8';
+    if (opts.perLine) {
+      return splitInputLines(str)
+        .map((line) => encodeBytes(textToBytes(line, charset), { urlSafe: opts.urlSafe }))
+        .join('\n');
+    }
+    return encodeBytes(textToBytes(str, charset), { urlSafe: opts.urlSafe, mimeSplit: opts.mimeSplit });
+  }
+
+  function decodeText(b64, opts = {}) {
+    const decoder = makeDecoder(opts.charset || 'utf-8');
+    if (opts.perLine) {
+      return splitInputLines(b64)
+        .map((line, idx) => {
+          if (line.trim() === '') return '';
+          try {
+            return decoder.decode(decodeToBytes(line));
+          } catch (e) {
+            return `[line ${idx + 1}: ${e.message}]`;
+          }
+        })
+        .join('\n');
+    }
+    return decoder.decode(decodeToBytes(b64));
+  }
+
+  // ---- PEM
+
+  const PEM_RE = /-----BEGIN ([^\r\n-][^\r\n]*?)-----([\s\S]*?)-----END \1-----/;
+
+  function detectPem(text) {
+    const m = PEM_RE.exec(String(text));
+    if (!m) return null;
+    return { label: m[1], body: m[2], start: m.index + '-----BEGIN '.length + m[1].length + '-----'.length };
+  }
+
+  function stripPem(text) {
+    const pem = detectPem(text);
+    return pem ? pem.body : text;
+  }
+
+  function wrapPem(b64, label = 'CERTIFICATE') {
+    const body = String(b64).replace(/\s+/g, '');
+    return `-----BEGIN ${label}-----\n${splitLines(body, 64, '\n')}\n-----END ${label}-----\n`;
+  }
+
+  // ---- binary helpers
+
+  function looksBinary(bytes, charset = 'utf-8') {
+    const sample = bytes.subarray(0, 4096);
+    if (sample.length === 0) return false;
+    let text;
+    try {
+      text = new TextDecoder(charset).decode(sample);
+    } catch (e) {
+      return true;
+    }
+    let total = 0;
+    let bad = 0;
+    for (const ch of text) {
+      const c = ch.codePointAt(0);
+      if (c === 0) return true;
+      total++;
+      if ((c < 32 && c !== 9 && c !== 10 && c !== 13) || c === 127 || c === 0xfffd) bad++;
+    }
+    return bad / total > 0.1;
+  }
+
+  function hexDump(bytes, maxBytes = 65536) {
+    const n = Math.min(bytes.length, maxBytes);
+    const lines = [];
+    for (let off = 0; off < n; off += 16) {
+      const end = Math.min(off + 16, n);
+      let hex = '';
+      let ascii = '';
+      for (let k = 0; k < 16; k++) {
+        if (off + k < end) {
+          const b = bytes[off + k];
+          hex += b.toString(16).padStart(2, '0') + ' ';
+          ascii += b >= 32 && b < 127 ? String.fromCharCode(b) : '.';
+        } else {
+          hex += '   ';
+        }
+        if (k === 7) hex += ' ';
+      }
+      lines.push(`${off.toString(16).padStart(8, '0')}  ${hex} |${ascii}|`);
+    }
+    return { text: lines.join('\n'), truncated: bytes.length > maxBytes };
+  }
+
+  return {
+    Base64Error,
+    encodeBytes, decodeToBytes,
+    ENCODE_CHARSETS, DECODE_CHARSETS, supportedDecodeCharsets,
+    textToBytes, bytesToText, encodeText, decodeText,
+    detectPem, stripPem, wrapPem,
+    looksBinary, hexDump,
+  };
+});
+
+</script>
+<script>
+/* Base64 Tool UI: DOM wiring only. All conversion goes through the B64 global (core.js). */
+(function () {
+  'use strict';
+
+  const $ = (id) => document.getElementById(id);
+  const LARGE_INPUT = 10 * 1024 * 1024;
+
+  // ---- shared helpers
+
+  function setMsg(el, text) {
+    el.textContent = text || '';
+    el.hidden = !text;
+  }
+
+  function fillCharsets(select, list) {
+    for (const cs of list) {
+      const opt = document.createElement('option');
+      opt.value = cs;
+      opt.textContent = cs.toUpperCase();
+      select.appendChild(opt);
+    }
+  }
+
+  function download(data, filename, type) {
+    const url = URL.createObjectURL(new Blob([data], { type: type || 'application/octet-stream' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename || 'download';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  async function copyText(text, button) {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (e) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+    }
+    const label = button.textContent;
+    button.textContent = 'Copied';
+    setTimeout(() => { button.textContent = label; }, 1200);
+  }
+
+  function debounce(fn, ms) {
+    let timer;
+    return () => {
+      clearTimeout(timer);
+      timer = setTimeout(fn, ms);
+    };
+  }
+
+  function formatSize(n) {
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  // Live mode: re-run on input (debounced) and on option changes; off automatically for huge input.
+  function wireLive({ input, live, run, notes, options }) {
+    const runLater = debounce(run, 150);
+    input.addEventListener('input', () => {
+      if (!live.checked) return;
+      if (input.value.length > LARGE_INPUT) {
+        live.checked = false;
+        setMsg(notes, 'Live mode turned off: input is larger than 10 MB. Use the button instead.');
+        return;
+      }
+      runLater();
+    });
+    for (const el of options) el.addEventListener('change', () => { if (live.checked) run(); });
+    live.addEventListener('change', () => { if (live.checked) run(); });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        run();
+      }
+    });
+  }
+
+  // ---- tabs
+
+  const TABS = ['decode', 'encode', 'file'];
+  function showTab(name) {
+    for (const t of TABS) {
+      $('tab-' + t).setAttribute('aria-selected', String(t === name));
+      $('panel-' + t).hidden = t !== name;
+    }
+  }
+  for (const t of TABS) $('tab-' + t).addEventListener('click', () => showTab(t));
+
+  // Dropping a file anywhere outside the drop zone must not navigate away from the page.
+  window.addEventListener('dragover', (e) => e.preventDefault());
+  window.addEventListener('drop', (e) => e.preventDefault());
+
+  // ---- decode tab
+
+  const dec = {
+    input: $('dec-input'), charset: $('dec-charset'), live: $('dec-live'), perLine: $('dec-perline'),
+    run: $('dec-run'), error: $('dec-error'), notes: $('dec-notes'), output: $('dec-output'),
+    asText: $('dec-astext'), asTextWrap: $('dec-astext-wrap'), copy: $('dec-copy'),
+    filename: $('dec-filename'), download: $('dec-download'),
+  };
+  fillCharsets(dec.charset, B64.supportedDecodeCharsets());
+  let lastDecoded = null;
+
+  function runDecode() {
+    setMsg(dec.error, '');
+    setMsg(dec.notes, '');
+    dec.asTextWrap.hidden = true;
+    lastDecoded = null;
+    const text = dec.input.value;
+    const charset = dec.charset.value;
+    if (text.trim() === '') {
+      dec.output.value = '';
+      return;
+    }
+    try {
+      if (dec.perLine.checked) {
+        dec.output.value = B64.decodeText(text, { charset, perLine: true });
+        return;
+      }
+      const pem = B64.detectPem(text);
+      const bytes = B64.decodeToBytes(text);
+      lastDecoded = bytes;
+      const notes = [];
+      if (pem) notes.push(`PEM: ${pem.label} detected, armor stripped`);
+      notes.push(`${formatSize(bytes.length)} decoded`);
+      const binary = B64.looksBinary(bytes, charset);
+      dec.asTextWrap.hidden = !binary;
+      if (binary && !dec.asText.checked) {
+        const dump = B64.hexDump(bytes);
+        dec.output.value = dump.text;
+        notes.push('binary data, showing hex dump' + (dump.truncated ? ' (first 64 KB only; Download saves everything)' : ''));
+      } else {
+        dec.output.value = B64.bytesToText(bytes, charset);
+      }
+      setMsg(dec.notes, notes.join(' · '));
+    } catch (e) {
+      dec.output.value = '';
+      setMsg(dec.error, e.message);
+    }
+  }
+
+  dec.run.addEventListener('click', runDecode);
+  dec.asText.addEventListener('change', runDecode);
+  wireLive({ input: dec.input, live: dec.live, run: runDecode, notes: dec.notes, options: [dec.charset, dec.perLine] });
+  dec.copy.addEventListener('click', () => copyText(dec.output.value, dec.copy));
+  dec.download.addEventListener('click', () => {
+    if (lastDecoded) download(lastDecoded, dec.filename.value.trim() || 'decoded.bin');
+    else if (dec.output.value) download(dec.output.value, dec.filename.value.trim() || 'decoded.txt', 'text/plain');
+  });
+
+  // ---- encode tab
+
+  const enc = {
+    input: $('enc-input'), charset: $('enc-charset'), live: $('enc-live'), perLine: $('enc-perline'),
+    urlSafe: $('enc-urlsafe'), mime: $('enc-mime'), pem: $('enc-pem'), pemLabel: $('enc-pemlabel'),
+    run: $('enc-run'), error: $('enc-error'), notes: $('enc-notes'), output: $('enc-output'),
+    copy: $('enc-copy'), filename: $('enc-filename'), download: $('enc-download'),
+  };
+  fillCharsets(enc.charset, B64.ENCODE_CHARSETS);
+
+  function runEncode() {
+    setMsg(enc.error, '');
+    setMsg(enc.notes, '');
+    const text = enc.input.value;
+    if (text === '') {
+      enc.output.value = '';
+      return;
+    }
+    const perLine = enc.perLine.checked;
+    const pem = enc.pem.checked;
+    try {
+      let out = B64.encodeText(text, {
+        charset: enc.charset.value,
+        perLine,
+        urlSafe: enc.urlSafe.checked && !pem,
+        mimeSplit: enc.mime.checked && !pem,
+      });
+      if (pem && !perLine) out = B64.wrapPem(out, enc.pemLabel.value.trim() || 'CERTIFICATE');
+      if (pem && perLine) setMsg(enc.notes, 'PEM wrapping is ignored in per-line mode.');
+      else if (pem && (enc.urlSafe.checked || enc.mime.checked)) {
+        setMsg(enc.notes, 'PEM always uses the standard alphabet and 64-character lines.');
+      }
+      enc.output.value = out;
+    } catch (e) {
+      enc.output.value = '';
+      setMsg(enc.error, e.message);
+    }
+  }
+
+  enc.run.addEventListener('click', runEncode);
+  wireLive({
+    input: enc.input, live: enc.live, run: runEncode, notes: enc.notes,
+    options: [enc.charset, enc.perLine, enc.urlSafe, enc.mime, enc.pem, enc.pemLabel],
+  });
+  enc.pem.addEventListener('change', () => {
+    enc.filename.value = enc.pem.checked ? 'encoded.pem' : 'encoded.b64';
+  });
+  enc.copy.addEventListener('click', () => copyText(enc.output.value, enc.copy));
+  enc.download.addEventListener('click', () => {
+    if (enc.output.value) download(enc.output.value, enc.filename.value.trim() || 'encoded.b64', 'text/plain');
+  });
+
+  // ---- file tab
+
+  const MAX_DISPLAY = 5 * 1024 * 1024;
+  const file = {
+    drop: $('drop'), pick: $('file-pick'), input: $('file-input'), info: $('file-info'),
+    encOpts: $('file-enc-opts'), mime: $('file-mime'), pem: $('file-pem'), pemLabel: $('file-pemlabel'),
+    run: $('file-run'), error: $('file-error'), notes: $('file-notes'), output: $('file-output'),
+    copy: $('file-copy'), filename: $('file-filename'), download: $('file-download'),
+  };
+  let currentFile = null;
+  let fileResult = null; // { data: string | Uint8Array, type: string }
+
+  function fileMode() {
+    return document.querySelector('input[name="file-mode"]:checked').value;
+  }
+
+  function resetFileResult() {
+    fileResult = null;
+    file.output.value = '';
+    setMsg(file.error, '');
+    setMsg(file.notes, '');
+  }
+
+  function suggestFilename() {
+    if (!currentFile) return;
+    const name = currentFile.name;
+    if (fileMode() === 'encode') {
+      file.filename.value = name + (file.pem.checked ? '.pem' : '.b64');
+    } else {
+      const base = name.replace(/\.(b64|base64|pem|txt)$/i, '');
+      file.filename.value = base === name ? name + '.bin' : base;
+    }
+  }
+
+  function setFile(f) {
+    currentFile = f;
+    resetFileResult();
+    file.info.textContent = `${f.name} (${formatSize(f.size)})`;
+    suggestFilename();
+  }
+
+  async function runFile() {
+    resetFileResult();
+    if (!currentFile) {
+      setMsg(file.error, 'Choose a file first.');
+      return;
+    }
+    try {
+      if (fileMode() === 'encode') {
+        const bytes = new Uint8Array(await currentFile.arrayBuffer());
+        const pem = file.pem.checked;
+        let out = B64.encodeBytes(bytes, { mimeSplit: file.mime.checked && !pem });
+        if (pem) out = B64.wrapPem(out, file.pemLabel.value.trim() || 'CERTIFICATE');
+        fileResult = { data: out, type: 'text/plain' };
+        const note = `${formatSize(bytes.length)} → ${formatSize(out.length)} of Base64`;
+        if (out.length > MAX_DISPLAY) {
+          setMsg(file.notes, `${note} · too large to display, use Download or Copy`);
+        } else {
+          file.output.value = out;
+          setMsg(file.notes, note);
+        }
+      } else {
+        const text = await currentFile.text();
+        const pem = B64.detectPem(text);
+        const bytes = B64.decodeToBytes(text);
+        fileResult = { data: bytes, type: 'application/octet-stream' };
+        const dump = B64.hexDump(bytes);
+        file.output.value = dump.text;
+        const notes = [];
+        if (pem) notes.push(`PEM: ${pem.label} detected, armor stripped`);
+        notes.push(`${formatSize(bytes.length)} decoded`);
+        if (dump.truncated) notes.push('preview shows the first 64 KB');
+        setMsg(file.notes, notes.join(' · '));
+      }
+    } catch (e) {
+      setMsg(file.error, e.message);
+    }
+  }
+
+  ['dragenter', 'dragover'].forEach((ev) => file.drop.addEventListener(ev, (e) => {
+    e.preventDefault();
+    file.drop.classList.add('over');
+  }));
+  ['dragleave', 'drop'].forEach((ev) => file.drop.addEventListener(ev, (e) => {
+    e.preventDefault();
+    file.drop.classList.remove('over');
+  }));
+  file.drop.addEventListener('drop', (e) => {
+    const f = e.dataTransfer.files[0];
+    if (f) setFile(f);
+  });
+  file.pick.addEventListener('click', () => file.input.click());
+  file.input.addEventListener('change', () => {
+    if (file.input.files[0]) setFile(file.input.files[0]);
+    file.input.value = '';
+  });
+  for (const radio of document.querySelectorAll('input[name="file-mode"]')) {
+    radio.addEventListener('change', () => {
+      file.encOpts.hidden = fileMode() !== 'encode';
+      resetFileResult();
+      suggestFilename();
+    });
+  }
+  file.pem.addEventListener('change', suggestFilename);
+  file.run.addEventListener('click', runFile);
+  file.copy.addEventListener('click', () => {
+    if (fileResult && typeof fileResult.data === 'string') copyText(fileResult.data, file.copy);
+    else copyText(file.output.value, file.copy);
+  });
+  file.download.addEventListener('click', () => {
+    if (fileResult) download(fileResult.data, file.filename.value.trim() || 'output', fileResult.type);
+  });
+})();
+
+</script>
+</body>
+</html>
