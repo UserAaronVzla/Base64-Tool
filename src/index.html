@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Base64 Tool</title>
+<!-- inline:style.css -->
+</head>
+<body>
+<header class="top">
+  <h1>Base64 Tool</h1>
+  <p class="tagline">Runs entirely in this page. Nothing you paste or drop here is sent anywhere.</p>
+  <nav class="tabs" role="tablist">
+    <button type="button" role="tab" id="tab-decode" aria-controls="panel-decode" aria-selected="true">Decode</button>
+    <button type="button" role="tab" id="tab-encode" aria-controls="panel-encode" aria-selected="false">Encode</button>
+    <button type="button" role="tab" id="tab-file" aria-controls="panel-file" aria-selected="false">File</button>
+  </nav>
+</header>
+
+<main>
+  <section id="panel-decode" role="tabpanel" aria-labelledby="tab-decode">
+    <label for="dec-input" class="lbl">Base64 input</label>
+    <textarea autocomplete="off" id="dec-input" spellcheck="false" placeholder="Paste Base64 or a PEM block (Ctrl+Enter to decode)"></textarea>
+    <div class="options">
+      <label>Charset <select id="dec-charset"></select></label>
+      <label><input type="checkbox" id="dec-live"> Live mode</label>
+      <label><input type="checkbox" id="dec-perline"> Each line separately</label>
+      <span class="hint">Standard and URL-safe alphabets are both accepted.</span>
+      <button type="button" id="dec-run" class="primary">Decode</button>
+    </div>
+    <p id="dec-error" class="error" role="alert" hidden></p>
+    <p id="dec-notes" class="note" hidden></p>
+    <div class="out-head">
+      <span class="lbl">Output</span>
+      <label id="dec-astext-wrap" hidden><input type="checkbox" id="dec-astext"> Show as text anyway</label>
+      <button type="button" id="dec-copy">Copy</button>
+      <input type="text" autocomplete="off" id="dec-filename" value="decoded.bin" aria-label="Download filename">
+      <button type="button" id="dec-download">Download</button>
+    </div>
+    <textarea autocomplete="off" id="dec-output" readonly spellcheck="false"></textarea>
+  </section>
+
+  <section id="panel-encode" role="tabpanel" aria-labelledby="tab-encode" hidden>
+    <label for="enc-input" class="lbl">Text input</label>
+    <textarea autocomplete="off" id="enc-input" spellcheck="false" placeholder="Type or paste text (Ctrl+Enter to encode)"></textarea>
+    <div class="options">
+      <label>Charset <select id="enc-charset"></select></label>
+      <label><input type="checkbox" id="enc-live"> Live mode</label>
+      <label><input type="checkbox" id="enc-perline"> Each line separately</label>
+      <label><input type="checkbox" id="enc-urlsafe"> URL-safe</label>
+      <label><input type="checkbox" id="enc-mime"> Split into 76-char lines (MIME)</label>
+      <label><input type="checkbox" id="enc-pem"> Wrap as PEM</label>
+      <input type="text" autocomplete="off" id="enc-pemlabel" value="CERTIFICATE" aria-label="PEM label">
+      <button type="button" id="enc-run" class="primary">Encode</button>
+    </div>
+    <p id="enc-error" class="error" role="alert" hidden></p>
+    <p id="enc-notes" class="note" hidden></p>
+    <div class="out-head">
+      <span class="lbl">Output</span>
+      <button type="button" id="enc-copy">Copy</button>
+      <input type="text" autocomplete="off" id="enc-filename" value="encoded.b64" aria-label="Download filename">
+      <button type="button" id="enc-download">Download</button>
+    </div>
+    <textarea autocomplete="off" id="enc-output" readonly spellcheck="false"></textarea>
+  </section>
+
+  <section id="panel-file" role="tabpanel" aria-labelledby="tab-file" hidden>
+    <div id="drop" class="drop">
+      Drop a file here or <button type="button" id="file-pick">choose a file</button>
+      <input type="file" id="file-input" hidden>
+      <p id="file-info" class="file-info">No file selected</p>
+    </div>
+    <div class="options">
+      <label><input type="radio" name="file-mode" value="encode" checked> Encode file → Base64</label>
+      <label><input type="radio" name="file-mode" value="decode"> Decode Base64/PEM file → original bytes</label>
+    </div>
+    <div class="options" id="file-enc-opts">
+      <label><input type="checkbox" id="file-mime"> Split into 76-char lines (MIME)</label>
+      <label><input type="checkbox" id="file-pem"> Wrap as PEM</label>
+      <input type="text" autocomplete="off" id="file-pemlabel" value="CERTIFICATE" aria-label="PEM label">
+    </div>
+    <div class="options">
+      <button type="button" id="file-run" class="primary">Convert</button>
+    </div>
+    <p id="file-error" class="error" role="alert" hidden></p>
+    <p id="file-notes" class="note" hidden></p>
+    <div class="out-head">
+      <span class="lbl">Result</span>
+      <button type="button" id="file-copy">Copy</button>
+      <input type="text" autocomplete="off" id="file-filename" value="" aria-label="Download filename">
+      <button type="button" id="file-download">Download</button>
+    </div>
+    <textarea autocomplete="off" id="file-output" readonly spellcheck="false"></textarea>
+  </section>
+</main>
+<!-- inline:core.js -->
+<!-- inline:ui.js -->
+</body>
+</html>

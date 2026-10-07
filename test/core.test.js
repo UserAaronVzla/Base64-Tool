@@ -1,0 +1,238 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
+const B64 = require('../src/core.js');
+
+const bytesOf = (s) => new TextEncoder().encode(s);
+const asBuf = (u8) => Buffer.from(u8.buffer, u8.byteOffset, u8.byteLength);
+
+// ---- Task 1: codec
+
+test('RFC 4648 test vectors encode and decode', () => {
+  const vectors = [['', ''], ['f', 'Zg=='], ['fo', 'Zm8='], ['foo', 'Zm9v'],
+    ['foob', 'Zm9vYg=='], ['fooba', 'Zm9vYmE='], ['foobar', 'Zm9vYmFy']];
+  for (const [plain, b64] of vectors) {
+    assert.equal(B64.encodeBytes(bytesOf(plain)), b64);
+    assert.deepEqual(asBuf(B64.decodeToBytes(b64)), Buffer.from(plain));
+  }
+});
+
+test('random byte arrays round-trip and match Buffer (standard and url-safe)', () => {
+  for (let len = 0; len <= 300; len++) {
+    const bytes = crypto.randomBytes(len);
+    const std = B64.encodeBytes(bytes);
+    const url = B64.encodeBytes(bytes, { urlSafe: true });
+    assert.equal(std, bytes.toString('base64'), `std len ${len}`);
+    assert.equal(url, bytes.toString('base64url'), `url len ${len}`);
+    assert.deepEqual(asBuf(B64.decodeToBytes(std)), bytes);
+    assert.deepEqual(asBuf(B64.decodeToBytes(url)), bytes);
+  }
+});
+
+test('decode is lenient: whitespace, missing padding, mixed alphabets', () => {
+  assert.equal(asBuf(B64.decodeToBytes(' Zm9v\r\nYmFy \t')).toString(), 'foobar');
+  assert.equal(asBuf(B64.decodeToBytes('Zm9vYg')).toString(), 'foob');
+  assert.equal(asBuf(B64.decodeToBytes('Zm9vYmE')).toString(), 'fooba');
+  const bytes = Uint8Array.from([0xfb, 0xff, 0xbf, 0xfe]);
+  assert.deepEqual(B64.decodeToBytes('-_-__g'), bytes);
+  assert.deepEqual(B64.decodeToBytes('+/+//g=='), bytes);
+  assert.deepEqual(B64.decodeToBytes('-/+_/g'), bytes);
+});
+
+test('invalid character reports position in the original input', () => {
+  assert.throws(() => B64.decodeToBytes('QUJD\nR%=='), (e) => {
+    assert.equal(e.name, 'Base64Error');
+    assert.equal(e.position, 6);
+    assert.equal(e.char, '%');
+    assert.equal(e.message, "Invalid character '%' at position 6");
+    return true;
+  });
+});
+
+test('length of 1 mod 4 is rejected', () => {
+  assert.throws(() => B64.decodeToBytes('Zm9vY'), /Invalid Base64 length: 5 characters/);
+});
+
+test('data after padding is rejected', () => {
+  assert.throws(() => B64.decodeToBytes('Zg==Zg=='), (e) => e.position === 4 && /after padding/.test(e.message));
+});
+
+test('MIME split inserts CRLF every 76 characters', () => {
+  const out = B64.encodeBytes(new Uint8Array(100), { mimeSplit: true });
+  const lines = out.split('\r\n');
+  assert.deepEqual(lines.map((l) => l.length), [76, 60]);
+  assert.equal(B64.encodeBytes(new Uint8Array(57), { mimeSplit: true }).includes('\r\n'), false);
+});
+
+test('large input (5 MB) encodes and decodes without stack overflow', () => {
+  const bytes = crypto.randomBytes(5 * 1024 * 1024);
+  const b64 = B64.encodeBytes(bytes);
+  assert.equal(b64, bytes.toString('base64'));
+  assert.ok(asBuf(B64.decodeToBytes(b64)).equals(bytes));
+});
+
+// ---- Task 2: charsets and text
+
+test('unicode text round-trips in UTF-8, UTF-16LE, UTF-16BE', () => {
+  const text = 'héllo wörld — 日本語 🙂🚀';
+  for (const charset of ['utf-8', 'utf-16le', 'utf-16be']) {
+    const b64 = B64.encodeText(text, { charset });
+    assert.equal(B64.decodeText(b64, { charset }), text, charset);
+  }
+  assert.equal(B64.encodeText(text, { charset: 'utf-8' }), Buffer.from(text, 'utf8').toString('base64'));
+  assert.equal(B64.encodeText(text, { charset: 'utf-16le' }), Buffer.from(text, 'utf16le').toString('base64'));
+});
+
+test('ISO-8859-1 round-trips and rejects characters above U+00FF', () => {
+  const text = 'café ñ ü ©';
+  const b64 = B64.encodeText(text, { charset: 'iso-8859-1' });
+  assert.equal(b64, Buffer.from(text, 'latin1').toString('base64'));
+  assert.equal(B64.decodeText(b64, { charset: 'iso-8859-1' }), text);
+  assert.throws(() => B64.encodeText('price: €5', { charset: 'iso-8859-1' }),
+    /Character '€' at position 7 cannot be encoded as ISO-8859-1/);
+});
+
+test('unsupported charsets give clear errors', () => {
+  assert.throws(() => B64.encodeText('x', { charset: 'shift_jis' }), /Encoding to shift_jis is not supported/);
+  assert.throws(() => B64.decodeText('eA==', { charset: 'not-a-charset' }), /Unsupported charset: not-a-charset/);
+});
+
+test('every listed decode charset is supported by this runtime', () => {
+  assert.deepEqual(B64.supportedDecodeCharsets(), B64.DECODE_CHARSETS);
+});
+
+test('PowerShell -EncodedCommand decodes as UTF-16LE', () => {
+  assert.equal(
+    B64.decodeText('VwByAGkAdABlAC0ATwB1AHQAcAB1AHQAIAAnAGgAaQAnAA==', { charset: 'utf-16le' }),
+    "Write-Output 'hi'");
+});
+
+test('per-line encode handles CRLF and preserves blank lines', () => {
+  assert.equal(B64.encodeText('foo\r\n\r\nbar\r\n', { perLine: true }), 'Zm9v\n\nYmFy\n');
+});
+
+test('per-line decode keeps good lines when one line is bad, and preserves blank lines', () => {
+  const out = B64.decodeText('Zm9v\r\n\r\nYm%y\r\nYmFy', { perLine: true });
+  assert.equal(out, "foo\n\n[line 3: Invalid character '%' at position 2]\nbar");
+});
+
+test('per-line mode ignores mimeSplit', () => {
+  const long = 'x'.repeat(100);
+  assert.equal(B64.encodeText(long, { perLine: true, mimeSplit: true }).includes('\r\n'), false);
+});
+
+// ---- Task 3: PEM
+
+test('wrapPem -> detectPem -> decode returns original bytes and label', () => {
+  const der = crypto.randomBytes(300);
+  const pem = B64.wrapPem(B64.encodeBytes(der), 'CERTIFICATE');
+  const lines = pem.trimEnd().split('\n');
+  assert.equal(lines[0], '-----BEGIN CERTIFICATE-----');
+  assert.equal(lines.at(-1), '-----END CERTIFICATE-----');
+  assert.ok(lines.slice(1, -1).every((l) => l.length <= 64));
+  assert.equal(lines[1].length, 64);
+  const found = B64.detectPem(pem);
+  assert.equal(found.label, 'CERTIFICATE');
+  assert.equal(B64.stripPem(pem), found.body);
+  assert.ok(asBuf(B64.decodeToBytes(pem)).equals(der));
+});
+
+test('PEM with preamble text, CRLF line endings and multi-word label is decoded', () => {
+  const der = crypto.randomBytes(80);
+  const pem = 'Bag Attributes\r\n    localKeyID: 01 00 00 00\r\nsubject=CN = example\r\n'
+    + B64.wrapPem(B64.encodeBytes(der), 'RSA PRIVATE KEY').replace(/\n/g, '\r\n')
+    + 'trailing junk';
+  assert.equal(B64.detectPem(pem).label, 'RSA PRIVATE KEY');
+  assert.ok(asBuf(B64.decodeToBytes(pem)).equals(der));
+});
+
+test('error position inside a PEM body refers to the original input', () => {
+  // The preamble contains ':' so that decoding without PEM stripping fails at a different position.
+  const input = 'subject: CN=example\n-----BEGIN CERTIFICATE-----\nQUJD%\n-----END CERTIFICATE-----\n';
+  assert.throws(() => B64.decodeToBytes(input), (e) => {
+    assert.equal(e.position, input.indexOf('%'));
+    return true;
+  });
+});
+
+test('text without PEM armor is returned unchanged by stripPem; detectPem returns null', () => {
+  assert.equal(B64.detectPem('Zm9v'), null);
+  assert.equal(B64.stripPem('Zm9v'), 'Zm9v');
+});
+
+// ---- Task 4: binary helpers
+
+test('looksBinary is true for DER-like bytes and false for text', () => {
+  const der = Uint8Array.from([0x30, 0x82, 0x03, 0x5d, 0x30, 0x82, 0x02, 0x45, 0xa0, 0x03, 0x02, 0x01,
+    0x02, 0x02, 0x09, 0x00, 0xb7, 0x1c, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d]);
+  assert.equal(B64.looksBinary(der), true);
+  assert.equal(B64.looksBinary(bytesOf('Hello, world!\nSecond line\twith tab')), false);
+  assert.equal(B64.looksBinary(new Uint8Array(0)), false);
+});
+
+test('looksBinary is charset-aware', () => {
+  const utf16 = B64.textToBytes('Write-Output hello', 'utf-16le');
+  assert.equal(B64.looksBinary(utf16, 'utf-8'), true);
+  assert.equal(B64.looksBinary(utf16, 'utf-16le'), false);
+  const latin = B64.textToBytes('café olé', 'iso-8859-1');
+  assert.equal(B64.looksBinary(latin, 'utf-8'), true);
+  assert.equal(B64.looksBinary(latin, 'windows-1252'), false);
+});
+
+test('hexDump formats full and partial rows', () => {
+  const full = Uint8Array.from({ length: 16 }, (_, i) => i);
+  assert.equal(B64.hexDump(full).text,
+    '00000000  00 01 02 03 04 05 06 07  08 09 0a 0b 0c 0d 0e 0f  |................|');
+  const lines = B64.hexDump(bytesOf('0123456789abcdefHello')).text.split('\n');
+  assert.equal(lines.length, 2);
+  assert.ok(lines[1].startsWith('00000010  48 65 6c 6c 6f '));
+  assert.equal(lines[1].indexOf('|'), 60);
+  assert.ok(lines[1].endsWith('|Hello|'));
+  assert.deepEqual(B64.hexDump(new Uint8Array(0)), { text: '', truncated: false });
+});
+
+test('hexDump truncates at maxBytes', () => {
+  const res = B64.hexDump(new Uint8Array(100), 32);
+  assert.equal(res.truncated, true);
+  assert.equal(res.text.split('\n').length, 2);
+  assert.equal(B64.hexDump(new Uint8Array(32), 32).truncated, false);
+});
+
+// ---- Final review fixes
+
+test('PEM armor without a matching pair is an error, not silently decoded', () => {
+  const body = B64.encodeBytes(crypto.randomBytes(48));
+  assert.throws(() => B64.decodeToBytes(`-----BEGIN CERTIFICATE-----\n${body}\n`),
+    /PEM armor line without a matching BEGIN\/END pair/);
+  assert.throws(() => B64.decodeToBytes(`-----BEGIN RSA PRIVATE KEY-----\n${body}\n-----END PRIVATE KEY-----\n`),
+    /PEM armor line without a matching BEGIN\/END pair/);
+});
+
+test('detectPem counts every PEM block in the input', () => {
+  const block = (label) => B64.wrapPem(B64.encodeBytes(crypto.randomBytes(30)), label);
+  assert.equal(B64.detectPem(block('CERTIFICATE')).count, 1);
+  const chain = 'Bag Attributes\n' + block('PRIVATE KEY') + 'Bag Attributes\n' + block('CERTIFICATE') + block('CERTIFICATE');
+  const found = B64.detectPem(chain);
+  assert.equal(found.label, 'PRIVATE KEY');
+  assert.equal(found.count, 3);
+});
+
+test('decodeWarnings flags a space inside a line (e.g. an auth-scheme prefix)', () => {
+  const w = B64.decodeWarnings('Basic dXNlcjpwYXNzd29yZA==');
+  assert.equal(w.length, 1);
+  assert.match(w[0], /Line 1 contains a space between "Basic" and "dXNlcjpw/);
+  assert.deepEqual(B64.decodeWarnings('Zm9v\r\nYmFy\n'), []);
+  assert.deepEqual(B64.decodeWarnings('  Zm9vYmFy  \n'), []);
+  assert.deepEqual(B64.decodeWarnings(B64.wrapPem('Zm9vYmFy')), []);
+});
+
+test('fileBytesToText honours BOMs and detects BOM-less UTF-16LE (PowerShell 5.1 output)', () => {
+  const b64 = 'Zm9vYmFy\r\n';
+  assert.equal(B64.fileBytesToText(Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(b64, 'utf16le')])), b64);
+  assert.equal(B64.fileBytesToText(Buffer.from(b64, 'utf16le')), b64);
+  const be = Buffer.from(b64, 'utf16le').swap16();
+  assert.equal(B64.fileBytesToText(Buffer.concat([Buffer.from([0xfe, 0xff]), be])), b64);
+  assert.equal(B64.fileBytesToText(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(b64)])), b64);
+  assert.equal(B64.fileBytesToText(Buffer.from(b64)), b64);
+  assert.equal(B64.fileBytesToText(new Uint8Array(0)), '');
+});
