@@ -236,3 +236,44 @@ test('fileBytesToText honours BOMs and detects BOM-less UTF-16LE (PowerShell 5.1
   assert.equal(B64.fileBytesToText(Buffer.from(b64)), b64);
   assert.equal(B64.fileBytesToText(new Uint8Array(0)), '');
 });
+
+// ---- Deferred minor fixes
+
+test('no-break space, zero-width space and BOM are ignored like whitespace', () => {
+  assert.equal(asBuf(B64.decodeToBytes('\ufeffZm9v\u00a0YmFy\u200b')).toString(), 'foobar');
+});
+
+test('invisible or non-ASCII invalid characters are reported with their code point', () => {
+  assert.throws(() => B64.decodeToBytes('Zm9v\u2003'), /^Base64Error: Invalid character '\u2003' \(U\+2003\) at position 4$/);
+  assert.throws(() => B64.decodeToBytes('Zm9vé'), /Invalid character 'é' \(U\+00E9\) at position 4/);
+  assert.throws(() => B64.decodeToBytes('Zm9v%'), /^Base64Error: Invalid character '%' at position 4$/);
+});
+
+test('RFC 1421 PEM headers are skipped and reported, including encryption', () => {
+  const der = crypto.randomBytes(64);
+  const pem = '-----BEGIN RSA PRIVATE KEY-----\r\nProc-Type: 4,ENCRYPTED\r\n'
+    + 'DEK-Info: AES-128-CBC,0123456789ABCDEF0123456789ABCDEF\r\n\r\n'
+    + B64.encodeBytes(der, { mimeSplit: true }) + '\r\n-----END RSA PRIVATE KEY-----\r\n';
+  assert.ok(asBuf(B64.decodeToBytes(pem)).equals(der));
+  assert.deepEqual(B64.decodeWarnings(pem),
+    ['PEM headers skipped (Proc-Type, DEK-Info); the key is encrypted, so the output is still ciphertext']);
+});
+
+test('error position after skipped PEM headers refers to the original input', () => {
+  const input = '-----BEGIN X-----\nComment: hi\n\nQUJD%\n-----END X-----\n';
+  assert.throws(() => B64.decodeToBytes(input), (e) => e.position === input.indexOf('%'));
+});
+
+test('data: URI prefix is stripped and reported', () => {
+  assert.deepEqual([...B64.decodeToBytes('data:image/png;base64,iVBORw0KGgo=')],
+    [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  assert.deepEqual(B64.decodeWarnings('data:image/png;base64,iVBORw0KGgo='), ['data: URI (image/png) prefix stripped']);
+  assert.equal(asBuf(B64.decodeToBytes(' data:text/plain;charset=utf-8;base64,Zm9v')).toString(), 'foo');
+  assert.deepEqual(B64.decodeWarnings('data:;base64,Zm9v'), ['data: URI prefix stripped']);
+  const bad = 'data:text/plain;base64,Zm9v%';
+  assert.throws(() => B64.decodeToBytes(bad), (e) => e.position === bad.indexOf('%'));
+});
+
+test('per-line decode turns PEM armor lines into empty lines', () => {
+  assert.equal(B64.decodeText('-----BEGIN CERTIFICATE-----\r\nZm9v\r\n-----END CERTIFICATE-----', { perLine: true }), '\nfoo\n');
+});

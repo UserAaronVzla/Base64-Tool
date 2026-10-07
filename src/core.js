@@ -63,7 +63,9 @@
     let padSeen = false;
     for (let i = 0; i < text.length; i++) {
       const c = text.charCodeAt(i);
-      if (c === 32 || c === 9 || c === 10 || c === 13 || c === 11 || c === 12) continue;
+      // ASCII whitespace plus no-break space, zero-width space and BOM (common in copied text).
+      if (c === 32 || c === 9 || c === 10 || c === 13 || c === 11 || c === 12 ||
+          c === 0xa0 || c === 0x200b || c === 0xfeff) continue;
       if (c === 61) { padSeen = true; continue; }
       if (padSeen) {
         throw new Base64Error(`Unexpected data after padding at position ${i + offset}`, i + offset, charAt(text, i));
@@ -71,7 +73,10 @@
       const v = c < 128 ? LOOKUP[c] : -1;
       if (v < 0) {
         const ch = charAt(text, i);
-        throw new Base64Error(`Invalid character '${ch}' at position ${i + offset}`, i + offset, ch);
+        const cp = ch.codePointAt(0);
+        // Show the code point for anything that is not visible ASCII, so invisible characters are identifiable.
+        const shown = cp > 0x20 && cp < 0x7f ? `'${ch}'` : `'${ch}' (U+${cp.toString(16).toUpperCase().padStart(4, '0')})`;
+        throw new Base64Error(`Invalid character ${shown} at position ${i + offset}`, i + offset, ch);
       }
       vals[count++] = v;
     }
@@ -102,32 +107,60 @@
   // `opts.urlSafe` is accepted for symmetry; decoding always accepts both alphabets.
   function decodeToBytes(input, opts = {}) {
     const text = String(input);
-    const pem = detectPem(text);
-    if (pem) return decodeClean(pem.body, pem.start);
-    // An unpaired armor line (truncated paste, mismatched labels) would otherwise decode as data.
-    const orphan = ARMOR_LINE_RE.exec(text);
-    if (orphan) {
-      throw new Base64Error(
-        `PEM armor line without a matching BEGIN/END pair at position ${orphan.index} (truncated paste or mismatched labels?)`,
-        orphan.index, '-');
+    const p = locatePayload(text);
+    if (!p.pem) {
+      // An unpaired armor line (truncated paste, mismatched labels) would otherwise decode as data.
+      const orphan = ARMOR_LINE_RE.exec(text);
+      if (orphan) {
+        throw new Base64Error(
+          `PEM armor line without a matching BEGIN/END pair at position ${orphan.index} (truncated paste or mismatched labels?)`,
+          orphan.index, '-');
+      }
     }
-    return decodeClean(text, 0);
+    return decodeClean(p.data, p.offset);
   }
 
-  // Non-fatal hints about input that decodes but probably not as intended.
-  function decodeWarnings(input) {
-    const text = String(input);
+  const DATA_URI_RE = /^\s*data:([^,;]*)(?:;[^,;]*)*;base64,/i;
+  // RFC 1421 headers ("Proc-Type: 4,ENCRYPTED", "DEK-Info: ...", continuation lines) ended by a blank line.
+  const PEM_HEADERS_RE = /^\r?\n?((?:[A-Za-z0-9-]+:[^\r\n]*\r?\n(?:[ \t]+[^\r\n]*\r?\n)*)+)\r?\n/;
+
+  // Where the Base64 payload sits in `text`: inside a PEM block (after any headers),
+  // after a data: URI prefix, or the whole text. `offset` maps payload positions back to `text`.
+  function locatePayload(text) {
     const pem = detectPem(text);
-    const lines = splitInputLines(pem ? pem.body : text);
+    if (pem) {
+      const h = PEM_HEADERS_RE.exec(pem.body);
+      const skip = h ? h[0].length : 0;
+      const headers = h
+        ? h[1].split(/\r?\n/).filter((l) => /^[A-Za-z0-9-]+:/.test(l)).map((l) => l.slice(0, l.indexOf(':')))
+        : [];
+      return { data: pem.body.slice(skip), offset: pem.start + skip, pem, headers, encrypted: !!h && /ENCRYPTED/i.test(h[1]) };
+    }
+    const uri = DATA_URI_RE.exec(text);
+    if (uri) return { data: text.slice(uri[0].length), offset: uri[0].length, dataUri: true, mime: uri[1] };
+    return { data: text, offset: 0 };
+  }
+
+  // Non-fatal notes about input that was adjusted, or that decodes but probably not as intended.
+  function decodeWarnings(input) {
+    const p = locatePayload(String(input));
+    const notes = [];
+    if (p.dataUri) notes.push(p.mime ? `data: URI (${p.mime}) prefix stripped` : 'data: URI prefix stripped');
+    if (p.headers && p.headers.length) {
+      notes.push(`PEM headers skipped (${p.headers.join(', ')})` +
+        (p.encrypted ? '; the key is encrypted, so the output is still ciphertext' : ''));
+    }
+    const lines = splitInputLines(p.data);
     for (let i = 0; i < lines.length; i++) {
       const parts = lines[i].trim().split(/\s+/);
       if (parts.length > 1) {
         const second = parts[1].length > 8 ? parts[1].slice(0, 8) + '…' : parts[1];
-        return [`Line ${i + 1} contains a space between "${parts[0]}" and "${second}"; both were decoded together. ` +
-          'Remove any prefix such as "Basic " or "Bearer " if the output looks wrong.'];
+        notes.push(`Line ${i + 1} contains a space between "${parts[0]}" and "${second}"; both were decoded together. ` +
+          'Remove any prefix such as "Basic " or "Bearer " if the output looks wrong.');
+        break;
       }
     }
-    return [];
+    return notes;
   }
 
   // Text of a dropped/picked file: honours UTF-8/UTF-16 BOMs and BOM-less UTF-16LE
@@ -216,7 +249,8 @@
     if (opts.perLine) {
       return splitInputLines(b64)
         .map((line, idx) => {
-          if (line.trim() === '') return '';
+          // Blank and PEM armor lines become empty output lines, keeping output aligned with input.
+          if (line.trim() === '' || ARMOR_LINE_RE.test(line)) return '';
           try {
             return decoder.decode(decodeToBytes(line));
           } catch (e) {
