@@ -95,6 +95,10 @@
   }
   for (const t of TABS) $('tab-' + t).addEventListener('click', () => showTab(t));
 
+  // Dropping a file anywhere outside the drop zone must not navigate away from the page.
+  window.addEventListener('dragover', (e) => e.preventDefault());
+  window.addEventListener('drop', (e) => e.preventDefault());
+
   // ---- decode tab
 
   const dec = {
@@ -203,5 +207,118 @@
   enc.copy.addEventListener('click', () => copyText(enc.output.value, enc.copy));
   enc.download.addEventListener('click', () => {
     if (enc.output.value) download(enc.output.value, enc.filename.value.trim() || 'encoded.b64', 'text/plain');
+  });
+
+  // ---- file tab
+
+  const MAX_DISPLAY = 5 * 1024 * 1024;
+  const file = {
+    drop: $('drop'), pick: $('file-pick'), input: $('file-input'), info: $('file-info'),
+    encOpts: $('file-enc-opts'), mime: $('file-mime'), pem: $('file-pem'), pemLabel: $('file-pemlabel'),
+    run: $('file-run'), error: $('file-error'), notes: $('file-notes'), output: $('file-output'),
+    copy: $('file-copy'), filename: $('file-filename'), download: $('file-download'),
+  };
+  let currentFile = null;
+  let fileResult = null; // { data: string | Uint8Array, type: string }
+
+  function fileMode() {
+    return document.querySelector('input[name="file-mode"]:checked').value;
+  }
+
+  function resetFileResult() {
+    fileResult = null;
+    file.output.value = '';
+    setMsg(file.error, '');
+    setMsg(file.notes, '');
+  }
+
+  function suggestFilename() {
+    if (!currentFile) return;
+    const name = currentFile.name;
+    if (fileMode() === 'encode') {
+      file.filename.value = name + (file.pem.checked ? '.pem' : '.b64');
+    } else {
+      const base = name.replace(/\.(b64|base64|pem|txt)$/i, '');
+      file.filename.value = base === name ? name + '.bin' : base;
+    }
+  }
+
+  function setFile(f) {
+    currentFile = f;
+    resetFileResult();
+    file.info.textContent = `${f.name} (${formatSize(f.size)})`;
+    suggestFilename();
+  }
+
+  async function runFile() {
+    resetFileResult();
+    if (!currentFile) {
+      setMsg(file.error, 'Choose a file first.');
+      return;
+    }
+    try {
+      if (fileMode() === 'encode') {
+        const bytes = new Uint8Array(await currentFile.arrayBuffer());
+        const pem = file.pem.checked;
+        let out = B64.encodeBytes(bytes, { mimeSplit: file.mime.checked && !pem });
+        if (pem) out = B64.wrapPem(out, file.pemLabel.value.trim() || 'CERTIFICATE');
+        fileResult = { data: out, type: 'text/plain' };
+        const note = `${formatSize(bytes.length)} → ${formatSize(out.length)} of Base64`;
+        if (out.length > MAX_DISPLAY) {
+          setMsg(file.notes, `${note} · too large to display, use Download or Copy`);
+        } else {
+          file.output.value = out;
+          setMsg(file.notes, note);
+        }
+      } else {
+        const text = await currentFile.text();
+        const pem = B64.detectPem(text);
+        const bytes = B64.decodeToBytes(text);
+        fileResult = { data: bytes, type: 'application/octet-stream' };
+        const dump = B64.hexDump(bytes);
+        file.output.value = dump.text;
+        const notes = [];
+        if (pem) notes.push(`PEM: ${pem.label} detected, armor stripped`);
+        notes.push(`${formatSize(bytes.length)} decoded`);
+        if (dump.truncated) notes.push('preview shows the first 64 KB');
+        setMsg(file.notes, notes.join(' · '));
+      }
+    } catch (e) {
+      setMsg(file.error, e.message);
+    }
+  }
+
+  ['dragenter', 'dragover'].forEach((ev) => file.drop.addEventListener(ev, (e) => {
+    e.preventDefault();
+    file.drop.classList.add('over');
+  }));
+  ['dragleave', 'drop'].forEach((ev) => file.drop.addEventListener(ev, (e) => {
+    e.preventDefault();
+    file.drop.classList.remove('over');
+  }));
+  file.drop.addEventListener('drop', (e) => {
+    const f = e.dataTransfer.files[0];
+    if (f) setFile(f);
+  });
+  file.pick.addEventListener('click', () => file.input.click());
+  file.input.addEventListener('change', () => {
+    if (file.input.files[0]) setFile(file.input.files[0]);
+    file.input.value = '';
+  });
+  for (const radio of document.querySelectorAll('input[name="file-mode"]')) {
+    radio.addEventListener('change', () => {
+      file.encOpts.hidden = fileMode() !== 'encode';
+      resetFileResult();
+      suggestFilename();
+    });
+  }
+  file.pem.addEventListener('change', suggestFilename);
+  file.run.addEventListener('click', runFile);
+  file.copy.addEventListener('click', () => {
+    if (fileResult && typeof fileResult.data === 'string') copyText(fileResult.data, file.copy);
+    else copyText(file.output.value, file.copy);
+  });
+  file.download.addEventListener('click', () => {
+    if (fileResult) download(fileResult.data, file.filename.value.trim() || 'output', fileResult.type);
   });
 })();
