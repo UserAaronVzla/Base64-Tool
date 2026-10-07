@@ -21,7 +21,7 @@
 <main>
   <section id="panel-decode" role="tabpanel" aria-labelledby="tab-decode">
     <label for="dec-input" class="lbl">Base64 input</label>
-    <textarea id="dec-input" spellcheck="false" placeholder="Paste Base64 or a PEM block (Ctrl+Enter to decode)"></textarea>
+    <textarea autocomplete="off" id="dec-input" spellcheck="false" placeholder="Paste Base64 or a PEM block (Ctrl+Enter to decode)"></textarea>
     <div class="options">
       <label>Charset <select id="dec-charset"></select></label>
       <label><input type="checkbox" id="dec-live"> Live mode</label>
@@ -35,15 +35,15 @@
       <span class="lbl">Output</span>
       <label id="dec-astext-wrap" hidden><input type="checkbox" id="dec-astext"> Show as text anyway</label>
       <button type="button" id="dec-copy">Copy</button>
-      <input type="text" id="dec-filename" value="decoded.bin" aria-label="Download filename">
+      <input type="text" autocomplete="off" id="dec-filename" value="decoded.bin" aria-label="Download filename">
       <button type="button" id="dec-download">Download</button>
     </div>
-    <textarea id="dec-output" readonly spellcheck="false"></textarea>
+    <textarea autocomplete="off" id="dec-output" readonly spellcheck="false"></textarea>
   </section>
 
   <section id="panel-encode" role="tabpanel" aria-labelledby="tab-encode" hidden>
     <label for="enc-input" class="lbl">Text input</label>
-    <textarea id="enc-input" spellcheck="false" placeholder="Type or paste text (Ctrl+Enter to encode)"></textarea>
+    <textarea autocomplete="off" id="enc-input" spellcheck="false" placeholder="Type or paste text (Ctrl+Enter to encode)"></textarea>
     <div class="options">
       <label>Charset <select id="enc-charset"></select></label>
       <label><input type="checkbox" id="enc-live"> Live mode</label>
@@ -51,7 +51,7 @@
       <label><input type="checkbox" id="enc-urlsafe"> URL-safe</label>
       <label><input type="checkbox" id="enc-mime"> Split into 76-char lines (MIME)</label>
       <label><input type="checkbox" id="enc-pem"> Wrap as PEM</label>
-      <input type="text" id="enc-pemlabel" value="CERTIFICATE" aria-label="PEM label">
+      <input type="text" autocomplete="off" id="enc-pemlabel" value="CERTIFICATE" aria-label="PEM label">
       <button type="button" id="enc-run" class="primary">Encode</button>
     </div>
     <p id="enc-error" class="error" role="alert" hidden></p>
@@ -59,10 +59,10 @@
     <div class="out-head">
       <span class="lbl">Output</span>
       <button type="button" id="enc-copy">Copy</button>
-      <input type="text" id="enc-filename" value="encoded.b64" aria-label="Download filename">
+      <input type="text" autocomplete="off" id="enc-filename" value="encoded.b64" aria-label="Download filename">
       <button type="button" id="enc-download">Download</button>
     </div>
-    <textarea id="enc-output" readonly spellcheck="false"></textarea>
+    <textarea autocomplete="off" id="enc-output" readonly spellcheck="false"></textarea>
   </section>
 
   <section id="panel-file" role="tabpanel" aria-labelledby="tab-file" hidden>
@@ -78,7 +78,7 @@
     <div class="options" id="file-enc-opts">
       <label><input type="checkbox" id="file-mime"> Split into 76-char lines (MIME)</label>
       <label><input type="checkbox" id="file-pem"> Wrap as PEM</label>
-      <input type="text" id="file-pemlabel" value="CERTIFICATE" aria-label="PEM label">
+      <input type="text" autocomplete="off" id="file-pemlabel" value="CERTIFICATE" aria-label="PEM label">
     </div>
     <div class="options">
       <button type="button" id="file-run" class="primary">Convert</button>
@@ -88,10 +88,10 @@
     <div class="out-head">
       <span class="lbl">Result</span>
       <button type="button" id="file-copy">Copy</button>
-      <input type="text" id="file-filename" value="" aria-label="Download filename">
+      <input type="text" autocomplete="off" id="file-filename" value="" aria-label="Download filename">
       <button type="button" id="file-download">Download</button>
     </div>
-    <textarea id="file-output" readonly spellcheck="false"></textarea>
+    <textarea autocomplete="off" id="file-output" readonly spellcheck="false"></textarea>
   </section>
 </main>
 <!-- inline:core.js -->

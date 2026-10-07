@@ -54,3 +54,10 @@ test('build refuses JS containing a closing script tag', () => {
   assert.notEqual(res.status, 0);
   assert.match(res.stderr, /contains "<\/script"/);
 });
+
+test('every textarea and text input opts out of autocomplete/form-state saving', () => {
+  const html = fs.readFileSync(path.join(root, 'src', 'index.html'), 'utf8');
+  const fields = html.match(/<(?:textarea|input type="text")(?=[\s>])[^>]*>/g);
+  assert.equal(fields.length, 10, `expected the page's text fields, found ${fields.length}`);
+  for (const tag of fields) assert.match(tag, /\bautocomplete="off"/, tag);
+});
