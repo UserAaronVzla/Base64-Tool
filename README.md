@@ -6,6 +6,8 @@ the page has no external resources, and its Content-Security-Policy (`default-sr
 blocks all network requests. Text boxes have autocomplete turned off, so the browser does not
 save their contents in its form or session-restore data.
 
+<img src="docs/screenshot.png" alt="Base64 Tool: the Decode tab with charset, live mode and per-line options" width="800">
+
 ## Features
 
 - **Decode:** Base64 → text in any common charset (UTF-8, UTF-16LE/BE, Windows-125x, ISO-8859-x, Shift_JIS, GBK, …).
