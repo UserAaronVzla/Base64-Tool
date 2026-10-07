@@ -120,3 +120,42 @@ test('per-line mode ignores mimeSplit', () => {
   const long = 'x'.repeat(100);
   assert.equal(B64.encodeText(long, { perLine: true, mimeSplit: true }).includes('\r\n'), false);
 });
+
+// ---- Task 3: PEM
+
+test('wrapPem -> detectPem -> decode returns original bytes and label', () => {
+  const der = crypto.randomBytes(300);
+  const pem = B64.wrapPem(B64.encodeBytes(der), 'CERTIFICATE');
+  const lines = pem.trimEnd().split('\n');
+  assert.equal(lines[0], '-----BEGIN CERTIFICATE-----');
+  assert.equal(lines.at(-1), '-----END CERTIFICATE-----');
+  assert.ok(lines.slice(1, -1).every((l) => l.length <= 64));
+  assert.equal(lines[1].length, 64);
+  const found = B64.detectPem(pem);
+  assert.equal(found.label, 'CERTIFICATE');
+  assert.equal(B64.stripPem(pem), found.body);
+  assert.ok(asBuf(B64.decodeToBytes(pem)).equals(der));
+});
+
+test('PEM with preamble text, CRLF line endings and multi-word label is decoded', () => {
+  const der = crypto.randomBytes(80);
+  const pem = 'Bag Attributes\r\n    localKeyID: 01 00 00 00\r\nsubject=CN = example\r\n'
+    + B64.wrapPem(B64.encodeBytes(der), 'RSA PRIVATE KEY').replace(/\n/g, '\r\n')
+    + 'trailing junk';
+  assert.equal(B64.detectPem(pem).label, 'RSA PRIVATE KEY');
+  assert.ok(asBuf(B64.decodeToBytes(pem)).equals(der));
+});
+
+test('error position inside a PEM body refers to the original input', () => {
+  // The preamble contains ':' so that decoding without PEM stripping fails at a different position.
+  const input = 'subject: CN=example\n-----BEGIN CERTIFICATE-----\nQUJD%\n-----END CERTIFICATE-----\n';
+  assert.throws(() => B64.decodeToBytes(input), (e) => {
+    assert.equal(e.position, input.indexOf('%'));
+    return true;
+  });
+});
+
+test('text without PEM armor is returned unchanged by stripPem; detectPem returns null', () => {
+  assert.equal(B64.detectPem('Zm9v'), null);
+  assert.equal(B64.stripPem('Zm9v'), 'Zm9v');
+});

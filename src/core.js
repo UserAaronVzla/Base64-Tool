@@ -101,7 +101,9 @@
 
   // `opts.urlSafe` is accepted for symmetry; decoding always accepts both alphabets.
   function decodeToBytes(input, opts = {}) {
-    return decodeClean(String(input), 0);
+    const text = String(input);
+    const pem = detectPem(text);
+    return pem ? decodeClean(pem.body, pem.start) : decodeClean(text, 0);
   }
 
   // ---- charsets
@@ -192,10 +194,31 @@
     return decoder.decode(decodeToBytes(b64));
   }
 
+  // ---- PEM
+
+  const PEM_RE = /-----BEGIN ([^\r\n-][^\r\n]*?)-----([\s\S]*?)-----END \1-----/;
+
+  function detectPem(text) {
+    const m = PEM_RE.exec(String(text));
+    if (!m) return null;
+    return { label: m[1], body: m[2], start: m.index + '-----BEGIN '.length + m[1].length + '-----'.length };
+  }
+
+  function stripPem(text) {
+    const pem = detectPem(text);
+    return pem ? pem.body : text;
+  }
+
+  function wrapPem(b64, label = 'CERTIFICATE') {
+    const body = String(b64).replace(/\s+/g, '');
+    return `-----BEGIN ${label}-----\n${splitLines(body, 64, '\n')}\n-----END ${label}-----\n`;
+  }
+
   return {
     Base64Error,
     encodeBytes, decodeToBytes,
     ENCODE_CHARSETS, DECODE_CHARSETS, supportedDecodeCharsets,
     textToBytes, bytesToText, encodeText, decodeText,
+    detectPem, stripPem, wrapPem,
   };
 });
