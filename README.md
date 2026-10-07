@@ -57,3 +57,7 @@ Source layout:
 | `build.mjs` | Inlines CSS/JS into the template to produce the single HTML file |
 
 Rebuild and commit `dist/base64-tool.html` after changing anything in `src/`.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
