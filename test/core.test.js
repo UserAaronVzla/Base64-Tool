@@ -159,3 +159,41 @@ test('text without PEM armor is returned unchanged by stripPem; detectPem return
   assert.equal(B64.detectPem('Zm9v'), null);
   assert.equal(B64.stripPem('Zm9v'), 'Zm9v');
 });
+
+// ---- Task 4: binary helpers
+
+test('looksBinary is true for DER-like bytes and false for text', () => {
+  const der = Uint8Array.from([0x30, 0x82, 0x03, 0x5d, 0x30, 0x82, 0x02, 0x45, 0xa0, 0x03, 0x02, 0x01,
+    0x02, 0x02, 0x09, 0x00, 0xb7, 0x1c, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d]);
+  assert.equal(B64.looksBinary(der), true);
+  assert.equal(B64.looksBinary(bytesOf('Hello, world!\nSecond line\twith tab')), false);
+  assert.equal(B64.looksBinary(new Uint8Array(0)), false);
+});
+
+test('looksBinary is charset-aware', () => {
+  const utf16 = B64.textToBytes('Write-Output hello', 'utf-16le');
+  assert.equal(B64.looksBinary(utf16, 'utf-8'), true);
+  assert.equal(B64.looksBinary(utf16, 'utf-16le'), false);
+  const latin = B64.textToBytes('café olé', 'iso-8859-1');
+  assert.equal(B64.looksBinary(latin, 'utf-8'), true);
+  assert.equal(B64.looksBinary(latin, 'windows-1252'), false);
+});
+
+test('hexDump formats full and partial rows', () => {
+  const full = Uint8Array.from({ length: 16 }, (_, i) => i);
+  assert.equal(B64.hexDump(full).text,
+    '00000000  00 01 02 03 04 05 06 07  08 09 0a 0b 0c 0d 0e 0f  |................|');
+  const lines = B64.hexDump(bytesOf('0123456789abcdefHello')).text.split('\n');
+  assert.equal(lines.length, 2);
+  assert.ok(lines[1].startsWith('00000010  48 65 6c 6c 6f '));
+  assert.equal(lines[1].indexOf('|'), 60);
+  assert.ok(lines[1].endsWith('|Hello|'));
+  assert.deepEqual(B64.hexDump(new Uint8Array(0)), { text: '', truncated: false });
+});
+
+test('hexDump truncates at maxBytes', () => {
+  const res = B64.hexDump(new Uint8Array(100), 32);
+  assert.equal(res.truncated, true);
+  assert.equal(res.text.split('\n').length, 2);
+  assert.equal(B64.hexDump(new Uint8Array(32), 32).truncated, false);
+});

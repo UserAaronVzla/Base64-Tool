@@ -214,11 +214,56 @@
     return `-----BEGIN ${label}-----\n${splitLines(body, 64, '\n')}\n-----END ${label}-----\n`;
   }
 
+  // ---- binary helpers
+
+  function looksBinary(bytes, charset = 'utf-8') {
+    const sample = bytes.subarray(0, 4096);
+    if (sample.length === 0) return false;
+    let text;
+    try {
+      text = new TextDecoder(charset).decode(sample);
+    } catch (e) {
+      return true;
+    }
+    let total = 0;
+    let bad = 0;
+    for (const ch of text) {
+      const c = ch.codePointAt(0);
+      if (c === 0) return true;
+      total++;
+      if ((c < 32 && c !== 9 && c !== 10 && c !== 13) || c === 127 || c === 0xfffd) bad++;
+    }
+    return bad / total > 0.1;
+  }
+
+  function hexDump(bytes, maxBytes = 65536) {
+    const n = Math.min(bytes.length, maxBytes);
+    const lines = [];
+    for (let off = 0; off < n; off += 16) {
+      const end = Math.min(off + 16, n);
+      let hex = '';
+      let ascii = '';
+      for (let k = 0; k < 16; k++) {
+        if (off + k < end) {
+          const b = bytes[off + k];
+          hex += b.toString(16).padStart(2, '0') + ' ';
+          ascii += b >= 32 && b < 127 ? String.fromCharCode(b) : '.';
+        } else {
+          hex += '   ';
+        }
+        if (k === 7) hex += ' ';
+      }
+      lines.push(`${off.toString(16).padStart(8, '0')}  ${hex} |${ascii}|`);
+    }
+    return { text: lines.join('\n'), truncated: bytes.length > maxBytes };
+  }
+
   return {
     Base64Error,
     encodeBytes, decodeToBytes,
     ENCODE_CHARSETS, DECODE_CHARSETS, supportedDecodeCharsets,
     textToBytes, bytesToText, encodeText, decodeText,
     detectPem, stripPem, wrapPem,
+    looksBinary, hexDump,
   };
 });
