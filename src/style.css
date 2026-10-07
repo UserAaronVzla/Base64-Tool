@@ -105,6 +105,7 @@ button {
   cursor: pointer;
 }
 button:hover { border-color: var(--accent); }
+button:disabled { opacity: 0.6; cursor: progress; }
 button.primary {
   background: var(--accent);
   border-color: var(--accent);

@@ -103,7 +103,41 @@
   function decodeToBytes(input, opts = {}) {
     const text = String(input);
     const pem = detectPem(text);
-    return pem ? decodeClean(pem.body, pem.start) : decodeClean(text, 0);
+    if (pem) return decodeClean(pem.body, pem.start);
+    // An unpaired armor line (truncated paste, mismatched labels) would otherwise decode as data.
+    const orphan = ARMOR_LINE_RE.exec(text);
+    if (orphan) {
+      throw new Base64Error(
+        `PEM armor line without a matching BEGIN/END pair at position ${orphan.index} (truncated paste or mismatched labels?)`,
+        orphan.index, '-');
+    }
+    return decodeClean(text, 0);
+  }
+
+  // Non-fatal hints about input that decodes but probably not as intended.
+  function decodeWarnings(input) {
+    const text = String(input);
+    const pem = detectPem(text);
+    const lines = splitInputLines(pem ? pem.body : text);
+    for (let i = 0; i < lines.length; i++) {
+      const parts = lines[i].trim().split(/\s+/);
+      if (parts.length > 1) {
+        const second = parts[1].length > 8 ? parts[1].slice(0, 8) + '…' : parts[1];
+        return [`Line ${i + 1} contains a space between "${parts[0]}" and "${second}"; both were decoded together. ` +
+          'Remove any prefix such as "Basic " or "Bearer " if the output looks wrong.'];
+      }
+    }
+    return [];
+  }
+
+  // Text of a dropped/picked file: honours UTF-8/UTF-16 BOMs and BOM-less UTF-16LE
+  // (Windows PowerShell 5.1 `>` / Out-File writes UTF-16LE).
+  function fileBytesToText(bytes) {
+    let charset = 'utf-8';
+    if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) charset = 'utf-16le';
+    else if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) charset = 'utf-16be';
+    else if (bytes.length >= 2 && bytes[0] !== 0 && bytes[1] === 0) charset = 'utf-16le';
+    return new TextDecoder(charset).decode(bytes);
   }
 
   // ---- charsets
@@ -197,11 +231,20 @@
   // ---- PEM
 
   const PEM_RE = /-----BEGIN ([^\r\n-][^\r\n]*?)-----([\s\S]*?)-----END \1-----/;
+  const PEM_RE_ALL = new RegExp(PEM_RE.source, 'g');
+  const ARMOR_LINE_RE = /-----(BEGIN|END) [^\r\n]*?-----/;
 
+  // First PEM block in `text`, plus `count` = number of PEM blocks present.
   function detectPem(text) {
-    const m = PEM_RE.exec(String(text));
+    const s = String(text);
+    const m = PEM_RE.exec(s);
     if (!m) return null;
-    return { label: m[1], body: m[2], start: m.index + '-----BEGIN '.length + m[1].length + '-----'.length };
+    return {
+      label: m[1],
+      body: m[2],
+      start: m.index + '-----BEGIN '.length + m[1].length + '-----'.length,
+      count: s.match(PEM_RE_ALL).length,
+    };
   }
 
   function stripPem(text) {
@@ -263,7 +306,7 @@
     encodeBytes, decodeToBytes,
     ENCODE_CHARSETS, DECODE_CHARSETS, supportedDecodeCharsets,
     textToBytes, bytesToText, encodeText, decodeText,
-    detectPem, stripPem, wrapPem,
+    detectPem, stripPem, wrapPem, decodeWarnings, fileBytesToText,
     looksBinary, hexDump,
   };
 });

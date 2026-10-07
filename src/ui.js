@@ -62,6 +62,17 @@
     return `${(n / (1024 * 1024)).toFixed(1)} MB`;
   }
 
+  // Notes about PEM armor and suspicious input for a decode (before the size note).
+  function decodeNotes(text, pem) {
+    const notes = [];
+    if (pem) {
+      notes.push(pem.count > 1
+        ? `PEM: ${pem.count} blocks found, decoded only the first (${pem.label}); paste blocks separately`
+        : `PEM: ${pem.label} detected, armor stripped`);
+    }
+    return notes.concat(B64.decodeWarnings(text));
+  }
+
   // Live mode: re-run on input (debounced) and on option changes; off automatically for huge input.
   function wireLive({ input, live, run, notes, options }) {
     const runLater = debounce(run, 150);
@@ -129,8 +140,7 @@
       const pem = B64.detectPem(text);
       const bytes = B64.decodeToBytes(text);
       lastDecoded = bytes;
-      const notes = [];
-      if (pem) notes.push(`PEM: ${pem.label} detected, armor stripped`);
+      const notes = decodeNotes(text, pem);
       notes.push(`${formatSize(bytes.length)} decoded`);
       const binary = B64.looksBinary(bytes, charset);
       dec.asTextWrap.hidden = !binary;
@@ -256,9 +266,17 @@
       setMsg(file.error, 'Choose a file first.');
       return;
     }
+    // Reads can be slow (large files, endpoint scanning); drop the result if the file or mode changed meanwhile.
+    const f = currentFile;
+    const mode = fileMode();
+    const stale = () => currentFile !== f || fileMode() !== mode;
+    file.run.disabled = true;
+    setMsg(file.notes, 'Reading file…');
     try {
-      if (fileMode() === 'encode') {
-        const bytes = new Uint8Array(await currentFile.arrayBuffer());
+      const raw = new Uint8Array(await f.arrayBuffer());
+      if (stale()) return;
+      if (mode === 'encode') {
+        const bytes = raw;
         const pem = file.pem.checked;
         let out = B64.encodeBytes(bytes, { mimeSplit: file.mime.checked && !pem });
         if (pem) out = B64.wrapPem(out, file.pemLabel.value.trim() || 'CERTIFICATE');
@@ -271,20 +289,24 @@
           setMsg(file.notes, note);
         }
       } else {
-        const text = await currentFile.text();
+        const text = B64.fileBytesToText(raw);
         const pem = B64.detectPem(text);
         const bytes = B64.decodeToBytes(text);
         fileResult = { data: bytes, type: 'application/octet-stream' };
         const dump = B64.hexDump(bytes);
         file.output.value = dump.text;
-        const notes = [];
-        if (pem) notes.push(`PEM: ${pem.label} detected, armor stripped`);
+        const notes = decodeNotes(text, pem);
         notes.push(`${formatSize(bytes.length)} decoded`);
         if (dump.truncated) notes.push('preview shows the first 64 KB');
         setMsg(file.notes, notes.join(' · '));
       }
     } catch (e) {
-      setMsg(file.error, e.message);
+      if (!stale()) {
+        setMsg(file.notes, '');
+        setMsg(file.error, e.message);
+      }
+    } finally {
+      file.run.disabled = false;
     }
   }
 

@@ -197,3 +197,42 @@ test('hexDump truncates at maxBytes', () => {
   assert.equal(res.text.split('\n').length, 2);
   assert.equal(B64.hexDump(new Uint8Array(32), 32).truncated, false);
 });
+
+// ---- Final review fixes
+
+test('PEM armor without a matching pair is an error, not silently decoded', () => {
+  const body = B64.encodeBytes(crypto.randomBytes(48));
+  assert.throws(() => B64.decodeToBytes(`-----BEGIN CERTIFICATE-----\n${body}\n`),
+    /PEM armor line without a matching BEGIN\/END pair/);
+  assert.throws(() => B64.decodeToBytes(`-----BEGIN RSA PRIVATE KEY-----\n${body}\n-----END PRIVATE KEY-----\n`),
+    /PEM armor line without a matching BEGIN\/END pair/);
+});
+
+test('detectPem counts every PEM block in the input', () => {
+  const block = (label) => B64.wrapPem(B64.encodeBytes(crypto.randomBytes(30)), label);
+  assert.equal(B64.detectPem(block('CERTIFICATE')).count, 1);
+  const chain = 'Bag Attributes\n' + block('PRIVATE KEY') + 'Bag Attributes\n' + block('CERTIFICATE') + block('CERTIFICATE');
+  const found = B64.detectPem(chain);
+  assert.equal(found.label, 'PRIVATE KEY');
+  assert.equal(found.count, 3);
+});
+
+test('decodeWarnings flags a space inside a line (e.g. an auth-scheme prefix)', () => {
+  const w = B64.decodeWarnings('Basic dXNlcjpwYXNzd29yZA==');
+  assert.equal(w.length, 1);
+  assert.match(w[0], /Line 1 contains a space between "Basic" and "dXNlcjpw/);
+  assert.deepEqual(B64.decodeWarnings('Zm9v\r\nYmFy\n'), []);
+  assert.deepEqual(B64.decodeWarnings('  Zm9vYmFy  \n'), []);
+  assert.deepEqual(B64.decodeWarnings(B64.wrapPem('Zm9vYmFy')), []);
+});
+
+test('fileBytesToText honours BOMs and detects BOM-less UTF-16LE (PowerShell 5.1 output)', () => {
+  const b64 = 'Zm9vYmFy\r\n';
+  assert.equal(B64.fileBytesToText(Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(b64, 'utf16le')])), b64);
+  assert.equal(B64.fileBytesToText(Buffer.from(b64, 'utf16le')), b64);
+  const be = Buffer.from(b64, 'utf16le').swap16();
+  assert.equal(B64.fileBytesToText(Buffer.concat([Buffer.from([0xfe, 0xff]), be])), b64);
+  assert.equal(B64.fileBytesToText(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(b64)])), b64);
+  assert.equal(B64.fileBytesToText(Buffer.from(b64)), b64);
+  assert.equal(B64.fileBytesToText(new Uint8Array(0)), '');
+});
